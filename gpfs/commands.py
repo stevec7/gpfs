@@ -22,13 +22,18 @@ for r in _SKIP_REGEXES:
     _LINE_REGEX.append(re.compile(r))
 
 
+
+
 class GPFSCommands(object):
 
-    def __init__(self, self.state):
-        self.self.state = self.state
+    def __init__(self, state):
+        self.state = state
 
+    # hate this method
+    def _tree(self):
+        return defaultdict(self._tree)
 
-    def build_cluster_state():
+    def build_cluster_state(self):
         """
         Builds a large dictionary containing filesystem information, node info,
         node states, failure group membership, etc.
@@ -66,10 +71,48 @@ class GPFSCommands(object):
                 self.state['nodes'][node_short_name]['roles'] = roles
                 self.state['nodes'][node_short_name]['fg'] = [] # empty list
 
-            f.truncate(0)
+        f.truncate(0)
 
-            # get initial node states
-            run('mmgetstate -L -a', stdout=f)
+        # get initial node states
+        run('mmgetstate -L -a', stdout=f)
+
+        for line in f.getvalue().splitlines():
+
+            if any(regex.match(line) for regex in _LINE_REGEX):
+                continue
+
+            else:
+                lf = ' '.join(line.split()).split()
+                node_short_name = lf[1]
+                gpfs_state = lf[5]
+                self.state['nodes'][node_short_name]['gpfs_state'] = gpfs_state
+
+        f.truncate(0)
+
+        # get node failure group membership
+        run('mmlsnsd', stdout=f)
+        disks = self._tree()
+        filesystems = []
+
+        for line in f.getvalue().splitlines():
+
+            if any(regex.match(line) for regex in _LINE_REGEX):
+                continue
+            else:
+                filesystem = line.split()[0]
+                disk_name = line.split()[1]
+                nsd_servers = line.split()[2]
+                disks[disk_name]['name'] = disk_name
+                disks[disk_name]['nsdservers'] = nsd_servers
+                
+        if filesystem not in filesystems:
+            filesystems.append(filesystem)
+
+        f.truncate(0)
+
+        for fs in filesystems:
+            cmd = "mmlsdisk %s" % fs
+            run(cmd, stdout=f)
 
             for line in f.getvalue().splitlines():
 
@@ -77,60 +120,22 @@ class GPFSCommands(object):
                     continue
 
                 else:
-                    lf = ' '.join(line.split()).split()
-                    node_short_name = lf[1]
-                    gpfs_state = lf[5]
-                    self.state['nodes'][node_short_name]['gpfs_state'] = gpfs_state
-
-            f.truncate(0)
-
-            # get node failure group membership
-            run('mmlsnsd', stdout=f)
-            disks = tree()
-            filesystems = []
-
-            for line in f.getvalue().splitlines():
-
-                if any(regex.match(line) for regex in _LINE_REGEX):
-                    continue
-                else:
-                    filesystem = line.split()[0]
-                    disk_name = line.split()[1]
-                    nsd_servers = line.split()[2]
-                    disks[disk_name]['name'] = disk_name
-                    disks[disk_name]['nsdservers'] = nsd_servers
-                    
-            if filesystem not in filesystems:
-                filesystems.append(filesystem)
-
-            f.truncate(0)
-
-            for fs in filesystems:
-                cmd = "mmlsdisk %s" % fs
-                run(cmd, stdout=f)
-
-                for line in f.getvalue().splitlines():
-
-                    if any(regex.match(line) for regex in _LINE_REGEX):
-                        continue
-
-                    else:
-                        disk_name = line.split()[0]
-                        fg = line.split()[3]
-                        disks[disk_name]['fg'] = fg
+                    disk_name = line.split()[0]
+                    fg = line.split()[3]
+                    disks[disk_name]['fg'] = fg
 
 
-            for d in disks.keys():
-                for n in disks[d]['nsdservers'].split(','):
-                    fg = disks[d]['fg']
-                    short_name = n.split('.')[0]
+        for d in disks.keys():
+            for n in disks[d]['nsdservers'].split(','):
+                fg = disks[d]['fg']
+                short_name = n.split('.')[0]
 
-                    if fg not in self.state['nodes'][short_name]['fg']:
-                        self.state['nodes'][short_name]['fg'].append(fg)
+                if fg not in self.state['nodes'][short_name]['fg']:
+                    self.state['nodes'][short_name]['fg'].append(fg)
 
-            return
+        return
 
-    def get_current_managers(self.state):
+    def get_gpfs_managers(self):
         """
         Get the current cluster/filesystem managers at any point in time, and
         update the self.state dictionary
@@ -157,8 +162,24 @@ class GPFSCommands(object):
 
         return
 
+    def get_node_kernel_and_arch(self):
+        """Gather the kernel version and architecture of the nodes"""
 
-    def get_node_gpfs_state(global_state, node):
+        node = env.host
+
+        f = StringIO.StringIO()
+        run('uname -a', stdout=f)
+
+        kernel_vers = f.getvalue().split()[2]
+        arch = kernel_vers.split('.')[-1]
+
+        self.state['nodes'][node]['kernel_vers'] = kernel_vers
+        self.state['nodes'][node]['arch'] = arch
+
+        return
+
+
+    def get_node_gpfs_state(self, node):
         """
         Get the GPFS state of the node at any given time, and update
         the global_state dictionary
@@ -185,7 +206,7 @@ class GPFSCommands(object):
         return
 
 
-    def get_node_gpfs_vers(global_state):
+    def get_node_gpfs_baserpm(self):
         """
         Get the GPFS version on a given node
 
@@ -202,7 +223,26 @@ class GPFSCommands(object):
             run('rpm -q gpfs.base --queryformat "%{name} %{version} %{release}\n"'
                 , stdout=f)
 
-        global_state['nodes'][node]['gpfs_vers'] = '-'.join(f.getvalue().split()[1:])
+        self.state['nodes'][node]['gpfs_vers'] = '-'.join(f.getvalue().split()[1:])
 
         return
         
+
+    def get_node_gpfs_verstring(self):
+        """
+        Gets daemon version (daemon needs to be running)
+        """
+
+        f = StringIO.StringIO()
+        node = env.host
+
+        with settings(
+                hide('running'),
+                output_prefix=''
+            ):
+            run('mmfsadm dump version | grep "Build branch"', stdout=f)
+
+        
+        #for line in f.getvalue().splitlines():
+                
+        return
