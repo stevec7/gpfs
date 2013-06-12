@@ -1,3 +1,4 @@
+import StringIO
 import sys
 from collections import defaultdict
 from fabric.tasks import execute
@@ -6,13 +7,20 @@ from fabric.context_managers import hide, show, settings
 
 class Node(object):
 
-    def __init__(self, envs=None):
+    def __init__(self, state, envs=None):
         """initializes class, but accepts fabric env vars if necessary
-        
+       
+        @param state: global dictionary. should be passed after 
+            gpfs.cluster.build_cluster_state creates initial dictionary
+        @type state: defaultdict
+
         @param envs: a list of fabric environment vars if necessary
         @type envs: list
         """
 
+        self.state = state
+
+        # pass in any relevent fabric.api.env vars
         if envs:
             for k in envs:
                 env[k] = envs[k]
@@ -35,8 +43,10 @@ class Node(object):
 
         kernel_vers = f.getvalue().split()[2]
         arch = kernel_vers.split('.')[-1]
+        self.state['nodes'][node]['kernel_vers'] = kernel_vers
+        self.state['nodes'][node]['arch'] = arch
 
-        return kernel_vers, arch
+        return 
 
 
     def get_gpfs_state(self):
@@ -62,8 +72,8 @@ class Node(object):
             else:
                 gpfs_state = line.split()[2]
 
-        return gpfs_state
-
+        self.state['nodes'][node]['gpfs_state'] = gpfs_state
+        return
 
     def get_gpfs_baserpm(self):
         """
@@ -81,8 +91,9 @@ class Node(object):
             ):
             run('rpm -q gpfs.base --queryformat "%{name} %{version} %{release}\n"'
                 , stdout=f)
-
-        return '-'.join(f.getvalue().split()[1:])
+        
+        self.state['nodes'][node]['gpfs_baserpm'] = '-'.join(f.getvalue().split()[1:])
+        return 
 
     def get_gpfs_verstring(self):
         """
@@ -98,7 +109,8 @@ class Node(object):
             ):
             run('mmfsadm dump version | grep "Build branch"', stdout=f)
 
-        return f.getvalue().split()[1]
+        self.state['nodes'][node]['gpfs_build_branch'] = f.getvalue().split()[1]
+        return 
 
     def mount_filesystem(self, filesystem):
         """Mount GPFS filesystems on a given node
