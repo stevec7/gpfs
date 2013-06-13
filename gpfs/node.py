@@ -1,9 +1,23 @@
+import re
 import StringIO
 import sys
 from collections import defaultdict
 from fabric.tasks import execute
 from fabric.api import env, local, run, parallel
 from fabric.context_managers import hide, show, settings
+
+# some global regexes
+_SKIP_REGEXES = [ '^----', '^======', ' Node  Daemon',
+                 'GPFS cluster information', '^ *$',
+                 'GPFS cluster configuration servers:', ' Node number',
+                 ' File system   Disk name', 'file system',
+                 ' Node number', 'disk         driver', 'name         type',
+                 ]
+_LINE_REGEX = []
+
+for r in _SKIP_REGEXES:
+    _LINE_REGEX.append(re.compile(r))
+
 
 class Node(object):
 
@@ -48,11 +62,13 @@ class Node(object):
 
         return 
 
-
     def get_gpfs_state(self):
         """
         Get the GPFS state of the node at any given time, and update
-        the global_state dictionary
+        the global_state dictionary. also returns the state to a calling process
+
+        @return: gpfs_state: the state
+        @rtype:
         """
 
         f = StringIO.StringIO()
@@ -72,8 +88,7 @@ class Node(object):
             else:
                 gpfs_state = line.split()[2]
 
-        self.state['nodes'][node]['gpfs_state'] = gpfs_state
-        return
+        return gpfs_state
 
     def get_gpfs_baserpm(self):
         """
@@ -87,7 +102,7 @@ class Node(object):
 
         with settings(
                 hide('running'),
-                output_prefix=''
+                output_prefix='',
             ):
             run('rpm -q gpfs.base --queryformat "%{name} %{version} %{release}\n"'
                 , stdout=f)
@@ -121,16 +136,35 @@ class Node(object):
 
         @return NOTHING
         """
+
+        run("mmmount %s" % filesystem)
+        return
+
+    def unmount_filesystem(self, filesystem):
+        """Mount GPFS filesystems on a given node
+        
+        @param filesystem: filesystem to mount, 'all' mounts all eligible
+            GPFS filesystems on that node
+        @type filesystem: string
+
+        @return NOTHING
+        """
+
+        run("mmumount %s" % filesystem)
         return
 
     def start_gpfs(self):
         """Starts GPFS on a given node"""
+
+        run('mmstartup')
         return
 
     def shutdown_gpfs(self):
         """Shuts down GPFS on a given node"""
+
+        run('mmshutdown')
         return
-   
+
     def update_gpfs_rpms(self, version, arch, kernel, reboot=False):
         """Update the following GPFS rpms:
             - gpfs.base
@@ -155,7 +189,8 @@ class Node(object):
 
         @return True or False, e.g. success or fail
         """
-        
+       
+        f = StringIO.StringIO()
         node = env.host
         versionstring = "%s.%s" % (version, arch)
         packages = [ 'gpfs.base', 'gpfs.gpl', 'gpfs.docs', 'gpfs.msg.en_US' ]
@@ -170,7 +205,66 @@ class Node(object):
         #   - blame IBM for that...
         gplbin = "gpfs.gplbin-%s-%s" % (kernel, versionstring)
 
-        #print "yumupdate: %s" % yumupdate
-        #print "gplbin: %s" % gplbin
+        #   do the deed...
+        #
+        # first, shutdown GPFS on the node
+        self.shutdown_gpfs()
+        state['nodes'][node]['gpfs_state'] = 'down'
+        #
+        # update the rpms
+        state['nodes'][node]['action_status'] = 'updating'
+        run(yumupdate)
+
+        # install new gplbin rpm
+        cmd = "yum -y install %s" % (gplbin)
+        run(cmd)
+
+        # if we need to reboot the server, do so
+        if reboot is True:
+            state['nodes'][node]['action_status'] = 'rebooting'
+            reboot()
+            self.start_gpfs()
+
+        else:
+            self.start_gpfs()
+
+        # check GPFS state
+        time.sleep(30)
+        out = self.get_gpfs_state()
+
+        if out == 'active':
+            pass
+        else:  #try to start GPFS
+            self.startup_gpfs()
+            time.sleep(30)
+            out = self.get_gpfs_state()
+        
+            if out != 'active':
+                print "Critical error starting GPFS on host: %s" % (env.host)
+            else:
+                pass
 
         return True
+
+    def update_gpfs_state(self):
+        """Updates the GPFS state in the state dictionary"""
+
+        f = StringIO.StringIO()
+        node = env.host
+
+        with settings(
+                hide('running'),
+                output_prefix=''
+            ):
+            run('mmgetstate', stdout=f)
+
+        for line in f.getvalue().splitlines():
+
+            if any(regex.match(line) for regex in _LINE_REGEX): 
+                continue
+
+            else:
+                gpfs_state = line.split()[2]
+
+        self.state['nodes'][node]['gpfs_state'] = gpfs_state
+        return 
