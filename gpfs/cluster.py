@@ -75,6 +75,14 @@ class GPFSCluster(object):
                 self.state['nodes'][node_short_name]['admin_node_name'] = lf[3]
                 self.state['nodes'][node_short_name]['roles'] = roles
                 self.state['nodes'][node_short_name]['fg'] = [] # empty list
+                self.state['nodes'][node_short_name]['short_name'] = node_short_name
+
+        # create a list of ALL nodes that are 'quorum-manager'
+        for node in self.state['nodes'].itervalues():
+            if re.match('quorum-manager', node['roles']):
+                    self.state.setdefault('quorum_managers', []).append(node['short_name'])
+
+            
 
         f.truncate(0)
 
@@ -136,8 +144,12 @@ class GPFSCluster(object):
 
         for d in disks.keys():
             for n in disks[d]['nsdservers'].split(','):
-                fg = int(disks[d]['fg'])
-                short_name = n.split('.')[0]
+                if isinstance(disks[d]['fg'], defaultdict):
+                    pass
+
+                else:
+                    fg = int(disks[d]['fg'])
+                    short_name = n.split('.')[0]
 
                 if fg not in self.state['nodes'][short_name]['fg']:
                     self.state['nodes'][short_name]['fg'].append(fg)
