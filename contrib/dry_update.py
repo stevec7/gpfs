@@ -2,9 +2,11 @@
 import argparse
 import json
 import operator
-#import gpfs.node
+import gpfs.node
 import sys
-#from fabric import env
+#from fabric.tasks import execute
+#from fabric.api import env, local, run, parallel
+#from fabric.context_managers import hide, show, settings
 
 parser = argparse.ArgumentParser(description='experiment with json dumps of gpfs states')
 parser.add_argument('-f', '--file', dest='jsonfile', required=True,
@@ -18,42 +20,60 @@ args = parser.parse_args()
 
 _NUM_GROUPS=args.numgroups
 state = json.load(open(args.jsonfile))
-#_NUM_GROUPS=4
 reboot_node = args.reboot_node
-#state = json.load(open("state.json"))
 
 #node_queue = sorted( [(i, state['nodes'][i]['weight']) \
 #                    for i in state['nodes'].keys()], \
 #                    key=operator.itemgetter(1) )
 
+# create gpfs.node.Node() object and pass the json state
+gpfsnode = gpfs.node.Node(state)
+
 nodelist = []
 
 for n in state['nodes'].itervalues():
     fg = n['fg']
+
+    # get first failure group (should be fixed later)
     try:
-        anothervar = fg[0]
+        ffg = fg[0]
     except:
-        anothervar = 0
+        ffg = 0
 
-    nodelist.append((n['weight'], anothervar, n)) 
+    nodelist.append((n['weight'], ffg , n)) 
 
+# sort the nodelist based on node weights (quorum/manager/client/etc)
 nodelist.sort(reverse=True)
 
+# create some nested lists that are separate node groups
 nodequeue = {}
 for k in range(0,_NUM_GROUPS):
     nodequeue[k] = []
 
+
+# here we take the nodelist and take an entry off the top and add it to it's own
+#   nodequeue[int] group
 i = 0
 for n in nodelist:
     nodequeue[i].append(n[2])
     i=(i+1)%_NUM_GROUPS
 
+# add nodes (shortname) to a list of finished nodes...
 finished_queue = []
     
 for x in nodequeue.itervalues():
     print "===== GROUP ====="
+
+    #env.hosts = [ str(s['short_name']) for s in x ]
+
+    #print env.hosts
+
+    #env.hosts = [ group_hosts, ] 
+    #env.use_hostbased = True
+
+    #run('uptime')
+
     for y in x:
-        #env.host = y['short_name']
 
         # is this node a cluster or filesystem manager?
         for node in state['managers'].items():
@@ -104,10 +124,9 @@ for x in nodequeue.itervalues():
                         state['managers'][node[0]] = new_manager
 
                     
-            #
-
         # now, do the update/action/etc
         state['nodes'][y['short_name']]['action_status'] = 'running_action'
+        #print "Node: %s, Roles: %s" % (state['nodes'][y['short_name']]['short_name'], state['nodes'][y['short_name']]['roles'])
         print "run(do_something) to node: %s" % y['short_name']
 
         if reboot_node is True:
@@ -115,6 +134,8 @@ for x in nodequeue.itervalues():
             print "Rebooting node: %s" % y['short_name']
             
         # check the state of GPFS on the node
+        #gpfs.node.get_gpfs_state(node[1])
+        
         
         
 

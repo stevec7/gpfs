@@ -79,8 +79,8 @@ class GPFSCluster(object):
 
         # create a list of ALL nodes that are 'quorum-manager'
         for node in self.state['nodes'].itervalues():
-            if re.match('quorum-manager', node['roles']):
-                    self.state.setdefault('quorum_managers', []).append(node['short_name'])
+            if re.match('^quorum', node['roles']):
+                    self.state.setdefault('quorum_nodes', []).append(node['short_name'])
 
             
 
@@ -154,38 +154,15 @@ class GPFSCluster(object):
                 if fg not in self.state['nodes'][short_name]['fg']:
                     self.state['nodes'][short_name]['fg'].append(fg)
 
+        # if you are going to be running some sort of action, 
+        #   create a finished_queue list for future use
+        self.state['finished_queue'] = []
         return
 
-    def change_cluster_manager(self, node):
-        """
-        Change cluster manager.
-
-        @param node: new cluster manager node
-        @type node: string
-        """
-        run("mmchmgr -c %s" % (node))
-    
-        return
-
-    def change_fs_manager(self, node, filesystem):
-        """
-        Change the filesystem manager. 
-
-        @param node: new filesystem manager node
-        @type node: string
-
-        @param filesystem: the filesystem to change the manager for
-        @type filesystem: string
-
-        @return True/False
-        """
-        run("mmchmgr %s %s" % (filesystem, node))
-
-        return
 
     def get_all_gpfs_baserpm(self):
         """
-        Get the gpfs.base rpm version
+        Get the gpfs.base rpm version and updates the state dictionary
 
         @return NOTHING
         """
@@ -259,7 +236,7 @@ class GPFSCluster(object):
     def get_managers(self):
         """
         Get the current cluster/filesystem managers at any point in time, and
-        update the self.state dictionary
+        updates the self.state dictionary
         """
 
         f = StringIO.StringIO()
@@ -283,42 +260,74 @@ class GPFSCluster(object):
 
         return
 
-    def shutdown_all_gpfs(self):
-        """Shuts down GPFS on ALL nodes
+# objectless cluster commands
+def change_cluster_manager(self, node):
+    """
+    Change cluster manager.
 
-        !!!Extremely dangerous!!!
+    @param node: new cluster manager node
+    @type node: string
+    """
 
-        This will fail unless you pass "couldgetfired=True" to
-        GPFSCluster(), ex: c = GPFSCluster({'couldgetfired' : True})
-        """
-        if env.couldgetfired != True:
-            print "Are you sure you want to 'mmshutdown -a'?"
-            print "If so, pass couldgetfired=True first..."
-            print "Exiting..."
-            sys.exit(0)
-        else:
-            #run('mmshutdown -a')
-            pass
+    #env.host_string = node
+    run("mmchmgr -c %s" % (node))
 
-        return
+    return
 
-    def startup_all_gpfs(self):
-        """Starts up GPFS on ALL nodes
+def change_fs_manager(self, node, filesystem):
+    """
+    Change the filesystem manager. 
 
-        !!!Extremely dangerous!!!
+    @param node: new filesystem manager node
+    @type node: string
 
-        This will fail unless you pass "couldgetfired=True" to
-        GPFSCluster(), ex: c = GPFSCluster({'couldgetfired' : True})
+    @param filesystem: the filesystem to change the manager for
+    @type filesystem: string
 
-        Note: not as dangerous, but let's keep this req. anyway...
-        """
-        if env.couldgetfired != True:
-            print "Are you sure you want to 'mmstartup -a'?"
-            print "If so, pass couldgetfired=True first..."
-            print "Exiting..."
-            sys.exit(0)
-        else:
-            #run('mmstartup -a')
-            pass
+    @return True/False
+    """
 
-        return
+    #env.host_string = node
+    run("mmchmgr %s %s" % (filesystem, node))
+
+    return
+
+def shutdown_all_gpfs(self):
+    """Shuts down GPFS on ALL nodes
+
+    !!!Extremely dangerous!!!
+
+    This will fail unless you pass "couldgetfired=True" to
+    GPFSCluster(), ex: c = GPFSCluster({'couldgetfired' : True})
+    """
+    if env.couldgetfired != True:
+        print "Are you sure you want to 'mmshutdown -a'?"
+        print "If so, pass couldgetfired=True first..."
+        print "Exiting..."
+        sys.exit(0)
+    else:
+        #run('mmshutdown -a')
+        pass
+
+    return
+
+def startup_all_gpfs(self):
+    """Starts up GPFS on ALL nodes
+
+    !!!Extremely dangerous!!!
+
+    This will fail unless you pass "couldgetfired=True" to
+    GPFSCluster(), ex: c = GPFSCluster({'couldgetfired' : True})
+
+    Note: not as dangerous, but let's keep this req. anyway...
+    """
+    if env.couldgetfired != True:
+        print "Are you sure you want to 'mmstartup -a'?"
+        print "If so, pass couldgetfired=True first..."
+        print "Exiting..."
+        sys.exit(0)
+    else:
+        #run('mmstartup -a')
+        pass
+
+    return
