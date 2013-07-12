@@ -2,6 +2,7 @@
 import argparse
 import json
 import operator
+import re
 import sys
 import gpfs.node
 from fabric.tasks import execute
@@ -18,6 +19,10 @@ def main(args):
     dryrun = args.dryrun
     state = json.load(open(args.jsonfile))
     gpfsvers = args.gpfsvers
+
+    # check gpfs version arg
+    if not re.match('^\d+\.\d+\.\d+\-\d+', gpfsvers):
+        raise SystemError('gpfs_version arg must be in format: X.Y.Z-V')
 
     nodelist = []
 
@@ -54,12 +59,15 @@ def main(args):
                     {'use_hostbased' : True}
                 )
 
-        
     for group in nodequeue.itervalues():
         print "===== GROUP ====="
         members = [ str(member['short_name']) for member in group ]
         print "=== Members: {0}".format(members)
-    
+
+        # set this nodes status to 'starting'
+        for m in members:
+            gpfsnode.update_node_key(m, 'action_status', 'starting')
+
         env.hosts = members
         env.parallel = True
         env.use_hostbased = True
@@ -70,9 +78,10 @@ def main(args):
                     '3.5.0-7'
                     }
         
-        #execute(gpfsnode.update_gpfs_software, gpfsvers, 'False', dryrun)
         execute(gpfsnode.update_gpfs_software, gpfsvers, 'False', 'True')
 
+    # dump this json for now to look at results...
+    json.dump(state, open('/tmp/dry_update.json', 'w'))
 
 if __name__ == '__main__':
 

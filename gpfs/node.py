@@ -41,7 +41,36 @@ class Node(object):
             for k in envs:
                 env[k] = envs[k]
 
-    def update_action_status():
+    def update_cluster_state_key(self, key, value):
+        """Updates the cluster state dictionary
+        @param key: the key to update
+        @type key: string
+
+        @param value: the value to set the key to
+        @type value: string
+
+        @return: NOTHING
+        """
+
+        self.state[key] = value
+
+        return
+
+    def update_node_key(self, node, key, value):
+        """Updates a node's action_status field
+        @param node: node status to update
+        @type node: string
+
+        @param key: the key in the state['nodes'][node] dict
+        @type key: string
+
+        @param value: the value to set the key to
+        @type value: string
+
+        @return: NOTHING
+        """
+
+        self.state['nodes'][node][key] = value
 
         return
 
@@ -91,14 +120,6 @@ class Node(object):
 
         nodename = env.host_string
         dry_run = True
-        print "Checking in: {0}".format(nodename)
-
-        # check the gpfs_version arg
-        if not re.match('^\d+\.\d+\.\d+\-\d+', gpfs_version):
-            raise SystemError('gpfs_version arg must be in format: X.Y.Z-V')
-
-        # set this nodes status to 'starting'
-        self.state['nodes'][nodename]['action_status'] = 'starting'
 
         # is this node a cluster or filesystem manager?
         for item in self.state['managers'].items():
@@ -135,35 +156,33 @@ class Node(object):
 
                     if resource == 'cluster':
                         # change the cluster manager to the new manager
-                        print "[GPFS Cluster] Changing cluster manager to {0}, via finished_queue.".format(
+                        print "[GPFS Cluster] Changing cluster manager to \'{0}\', via finished_queue.".format(
                                 new_man)
                         if dry_run is False:
                             #change_cluster_manager(new_man)
-                            pass
+                            self.state['managers']['cluster'] = new_man
 
-                        self.state['managers']['cluster'] = new_man
                     else:
-                        print "[GPFS Cluster] Changing management of {0} to {1}.".format(
+                        print "[GPFS Cluster] Changing manager of \'{0}\' to \'{1}\', via finished_queue.".format(
                                 resource, new_man)
                         if dry_run is False:
                             #change_fs_manager(new_man, resource)
-                            pass
-
-                        self.state['managers'][resource] = new_man
+                            self.state['managers'][resource] = new_man    
 
                 else:
-                    # select another manager node
+                    # select another manager node from nodes that are queued later
                     found_new_manager = False
-                    status = self.state['nodes'][nodename]['action_status']
+                    #status = self.state['nodes'][nodename]['action_status']
+                    #roles = self.state['nodes'][
 
                     for mgr in self.state['quorum_nodes']:
-                        print "Node: {0}, Status: {1}".format(mgr, status)
+                        status = self.state['nodes'][mgr]['action_status']
+                        #print "Node: {0}, Status: {1}".format(mgr, status)
 
                         if mgr != nodename and status != 'starting':
 
                             new_man = mgr
                             found_new_manager = True
-                            print "Found new manager!"
                             break
                             
                     # couldn't find new manager, we're screwed, bail...
@@ -171,34 +190,40 @@ class Node(object):
                         print "Error, could not find suitable manager node."
                         print "Exiting..."
                         new_man = 'ted'
+                        raise NodeError("[GPFS Cluster] Could not new manager for \'{0}\'".format(
+                                    resource))
                         #sys.exit(1)
 
                     if resource == 'cluster':
                         # change the cluster manager to the new manager
-                        print "[GPFS Cluster] Changing cluster manager to {0}.".format(
+                        print "[GPFS Cluster] Changing cluster manager to \'{0}\'.".format(
                                 new_man)
                         if dry_run is False:
                             #change_cluster_manager(new_man)
+                            self.state['managers']['cluster'] = new_man    
                             pass
 
-                        self.state['managers']['cluster'] = new_man
+                        
 
                     else:
-                        print "[GPFS Cluster] Changing management of {0} to {1}.".format(
+                        print "[GPFS Cluster] Changing manager of \'{0}\' to \'{1}\'.".format(
                                 resource, new_man)
                         if dry_run is False:
                             #change_fs_manager(new_man, resource)
+                            self.state['managers'][resource] = new_man    
                             pass
 
-                        self.state['managers'][resource] = new_man
+                        
 
         # now, do the update action if we are clear...
-        self.state['nodes'][nodename]['action_status'] = 'running_action'
+        self.update_node_key(nodename, 'action_status', 'running_action')
+        #print "[{0}] action_status = \'{1}\'".format(nodename, self.state['nodes'][nodename]['action_status'])
         print "[{0}] Running software update...".format(nodename)
 
-        if reboot_node is True:
-            self.state['nodes'][nodename]['action_status'] = 'rebooting'
-            print "Rebooting node: {0}".format(nodename)
+        if dry_run is False:
+            print "[{0}] Shutting down GPFS...".format(nodename)
+            #shutdown_gpfs(nodename)
+            #update_rpms(nodename)
 
         # check the state of GPFS on the node
         print "[{0}] Checking health after software update".format(nodename)
@@ -227,6 +252,18 @@ class Node(object):
             print "[{0}] - FAILED: {1} version is: {2}".format(
                     nodename, package[0], package[1])
 
+        if reboot_node is True:
+            self.update_node_key(nodename, 'action_status', 'rebooting')
+            print "[{0}] Rebooting...".format(nodename)
+            # reboot_node(nodename)
+            print "[{0}] Starting GPFS...".format(nodename)
+            #start_gpfs(nodename)
+        else:
+            print "[{0}] Starting GPFS...".format(nodename)
+            #start_gpfs(nodename)
+            
+
+
         print "[{0}] Checking GPFS daemon state...".format(nodename)
         new_state = get_gpfs_state(nodename)
         print "[{0}] GPFS state: {1}".format(nodename, new_state)
@@ -235,8 +272,8 @@ class Node(object):
         if dry_run is False:
             if new_state != 'active':
 
-                print ""
-                startup_gpfs(nodename)
+                print "[{0}] Trying to starting GPFS again...".format(nodename)
+                #start_gpfs(nodename)
                 time.sleep(15)
 
                 new_state = get_gpfs_state(nodename)
@@ -244,18 +281,27 @@ class Node(object):
                 # something is wrong here...
                 if new_state != 'active':
                     print "[{0}] Problem starting GPFS!".format(nodename)
-                    self.state['nodes'][nodename]['gpfs_state'] = new_state
-                    self.state['nodes'][nodename]['action_status'] = 'broken'
-
-                    return False
-
+                    print "[{0}] Final GPFS state: {1}".format(nodename, new_state)
+                    self.update_node_key(nodename, 'gpfs_status', new_state)
+                    self.update_node_key(nodename, 'action_status', 'broken')
+                    raise NodeError('Error starting GPFS on \'{0}\'. Bailing...'.format(nodename))
+                    
         # set that node's state to finished and update the gpfs_state
-        self.state['nodes'][nodename]['gpfs_state'] = new_state
-        self.state['nodes'][nodename]['action_status'] = 'finished'
+        self.update_node_key(nodename, 'gpfs_status', new_state)
+        self.update_node_key(nodename, 'action_status', 'finished')
+        self.update_node_key(nodename, 'gpfs_baserpm', software_levels['gpfs.base'])
         self.state['finished_queue'].append(nodename)
+        #print "[{0}] action_status = \'{1}\'".format(nodename, self.state['nodes'][nodename]['action_status'])
         print "[{0}] Update completed successfully!".format(nodename)
+        #print self.state['nodes'][nodename]
 
-        return True
+        return self.state
+
+class NodeError(Exception):
+    def __init__(self, value):
+        self.value = value
+    def __str__(self):
+        return repr(self.value)
 
 
 # objectless subroutines 
@@ -464,3 +510,20 @@ def unmount_filesystem(filesystem, node):
 
     return
 
+def update_rpms_yum(node, gpfs_version):
+    """Updates the gpfs rpms via yum
+
+    @param node: node to update rpms on
+    @type node: string
+
+    @param gpfs_version: version to update to, EX: 3.5.0-11
+    @type gpfs_version: string
+
+    @return: NOTHING
+    """
+
+    env.host_string = node
+
+
+
+    return
