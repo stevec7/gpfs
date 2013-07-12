@@ -68,7 +68,7 @@ class Node(object):
         self.state['nodes'][node]['gpfs_state'] = gpfs_state
         return 
 
-    def update_gpfs_software(self, gpfs_version, reboot_node=False, 
+    def update_gpfs_software(self, gpfs_version=None, reboot_node=False, 
             dry_run=True):
         """Update the gpfs rpms, install the portability layer,
         rpm and start gpfs back up.
@@ -90,10 +90,15 @@ class Node(object):
         """
 
         nodename = env.host_string
+        dry_run = True
+        print "Checking in: {0}".format(nodename)
 
         # check the gpfs_version arg
         if not re.match('^\d+\.\d+\.\d+\-\d+', gpfs_version):
             raise SystemError('gpfs_version arg must be in format: X.Y.Z-V')
+
+        # set this nodes status to 'starting'
+        self.state['nodes'][nodename]['action_status'] = 'starting'
 
         # is this node a cluster or filesystem manager?
         for item in self.state['managers'].items():
@@ -106,7 +111,7 @@ class Node(object):
             resource = item[0]  # could be 'cluster' or a fs name
 
             if nodename == manager:
-                print "\'%s\' manages: %s" % ( nodename, resource)
+                print "[{0}] manages '{1}'".format(nodename, resource)
 
                 # find a node that is a quorum-manager, and move the role to it
                 #   - however, first check if there is any nodes in the finished
@@ -114,27 +119,32 @@ class Node(object):
                 #
                 # create list of quorum-managers that are in the finished_queue
                 myset = set(self.state['finished_queue'])
-                qmgrs = list(myset.intersection(state['quorum_managers']))
+                qmgrs = list(myset.intersection(self.state['quorum_nodes']))
 
                 # select a quorum-manager node from the qmgrs list,
                 #   which contains quorum-manager nodes from the finished_queue
                 #   list
                 if len(qmgrs) > 0:
 
-                    new_man = qmgrs[0]  # get first quorum-manager from the list
+                    for n in qmgrs:
+                        if self.state['nodes'][n]['roles'] != 'quorum-manager':
+                            pass
+                        else:
+                            new_man = n
+                            break 
 
                     if resource == 'cluster':
                         # change the cluster manager to the new manager
-                        print "Changing cluster manager to {0}, found via\
-                            finished_queue.".format(new_man)
+                        print "[GPFS Cluster] Changing cluster manager to {0}, via finished_queue.".format(
+                                new_man)
                         if dry_run is False:
                             #change_cluster_manager(new_man)
                             pass
 
                         self.state['managers']['cluster'] = new_man
                     else:
-                        print "Changing {0} to {1} found via \
-                            finished_queue.".format(new_man, resource)
+                        print "[GPFS Cluster] Changing management of {0} to {1}.".format(
+                                resource, new_man)
                         if dry_run is False:
                             #change_fs_manager(new_man, resource)
                             pass
@@ -144,23 +154,29 @@ class Node(object):
                 else:
                     # select another manager node
                     found_new_manager = False
+                    status = self.state['nodes'][nodename]['action_status']
 
-                    for mgr in self.state['quorum_managers']:
-                        if mgr != nodename:
+                    for mgr in self.state['quorum_nodes']:
+                        print "Node: {0}, Status: {1}".format(mgr, status)
+
+                        if mgr != nodename and status != 'starting':
 
                             new_man = mgr
                             found_new_manager = True
+                            print "Found new manager!"
                             break
                             
                     # couldn't find new manager, we're screwed, bail...
                     if not found_new_manager:
                         print "Error, could not find suitable manager node."
                         print "Exiting..."
-                        sys.exit(1)
+                        new_man = 'ted'
+                        #sys.exit(1)
 
                     if resource == 'cluster':
                         # change the cluster manager to the new manager
-                        print "Changing cluster manager to {0}".format(new_man)
+                        print "[GPFS Cluster] Changing cluster manager to {0}.".format(
+                                new_man)
                         if dry_run is False:
                             #change_cluster_manager(new_man)
                             pass
@@ -168,8 +184,8 @@ class Node(object):
                         self.state['managers']['cluster'] = new_man
 
                     else:
-                        print "Changing {0} to {1} found via \
-                            finished_queue.".format(new_man, resource)
+                        print "[GPFS Cluster] Changing management of {0} to {1}.".format(
+                                resource, new_man)
                         if dry_run is False:
                             #change_fs_manager(new_man, resource)
                             pass
@@ -178,21 +194,23 @@ class Node(object):
 
         # now, do the update action if we are clear...
         self.state['nodes'][nodename]['action_status'] = 'running_action'
-        print "run(do_something) to node: {0}".format(nodename)
+        print "[{0}] Running software update...".format(nodename)
 
         if reboot_node is True:
             self.state['nodes'][nodename]['action_status'] = 'rebooting'
             print "Rebooting node: {0}".format(nodename)
 
         # check the state of GPFS on the node
-        print "Checking state of {0} after software update".format(nodename)
-        print "Checking GPFS packages match {0} version...".format(gpfs_version)
+        print "[{0}] Checking health after software update".format(nodename)
+        print "[{0}] Checking GPFS packages match '{1}' version...".format(
+                nodename, gpfs_version)
         software_levels = get_gpfs_software_levels(nodename)
+        have_good_gplbin = False    # makes sure the kernel + gpfs_vers line up
 
         for package in software_levels.items():
             if re.match('^gpfs.gplbin', package[0]):
                 kern = self.state['nodes'][nodename]['kernel_vers']
-                good_gplbin = "gpfs.gplbin-" % (kern)
+                good_gplbin = "gpfs.gplbin-%s" % (kern)
 
                 if package[0] == good_gplbin and package[1] == gpfs_version:
                     have_good_gplbin = True
@@ -201,17 +219,17 @@ class Node(object):
 
 
             if gpfs_version != package[1]:
-                print " - FAILED: {0} version is: {1}".format(
-                        package[0], package[1])
+                print "[{0}] - FAILED: {1} version is: {2}".format(
+                        nodename, package[0], package[1])
     
         # dont have a proper gplbin package...
         if not have_good_gplbin:
-            print " - FAILED: {0} version is: {1}".format(
-                package[0], package[1])
+            print "[{0}] - FAILED: {1} version is: {2}".format(
+                    nodename, package[0], package[1])
 
-        print "Checking GPFS daemon state..."
+        print "[{0}] Checking GPFS daemon state...".format(nodename)
         new_state = get_gpfs_state(nodename)
-        print "Node GPFS state {0} is: {0}".format(new_state)
+        print "[{0}] GPFS state: {1}".format(nodename, new_state)
     
         # try to start gpfs
         if dry_run is False:
@@ -225,7 +243,7 @@ class Node(object):
 
                 # something is wrong here...
                 if new_state != 'active':
-                    print "Problem starting GPFS on %s" % (nodename)
+                    print "[{0}] Problem starting GPFS!".format(nodename)
                     self.state['nodes'][nodename]['gpfs_state'] = new_state
                     self.state['nodes'][nodename]['action_status'] = 'broken'
 
@@ -235,6 +253,7 @@ class Node(object):
         self.state['nodes'][nodename]['gpfs_state'] = new_state
         self.state['nodes'][nodename]['action_status'] = 'finished'
         self.state['finished_queue'].append(nodename)
+        print "[{0}] Update completed successfully!".format(nodename)
 
         return True
 
@@ -278,7 +297,7 @@ def get_gpfs_baserpm(node):
     env.host_string = str(node)
     env.output_prefix = ''
         
-    run('rpm -q gpfs.base --queryformat "%{name} %{version} %{release}\n"'
+    run('rpm -q gpfs.base --queryformat "%{name} %{version} %{release}\\n"'
         , stdout=f)
     
     baserpm = '-'.join(f.getvalue().split()[1:])
@@ -303,13 +322,13 @@ def get_gpfs_software_levels(node):
     software_levels = {}
 
     f = StringIO.StringIO()
-    env.hide = ('running')
+    env.hide = ('all')
+    env.show = ('output')
     env.host_string = str(node)
     env.output_prefix = ''
 
     # first, get the normal packages
-    run('rpm -q gpfs.base gpfs.gpl gpfs.docs gpfs.msg.en_US \
-            --queryformat "%{name} %{version}-%{release}\n"', stdout=f)
+    run('rpm -q gpfs.base gpfs.gpl gpfs.docs gpfs.msg.en_US --queryformat "%{name} %{version}-%{release}\\n"', stdout=f)
 
 
     for line in f.getvalue().splitlines():
@@ -325,8 +344,7 @@ def get_gpfs_software_levels(node):
     #   installed, so do something with that as well...
     f.truncate(0)
 
-    run('rpm -qa | grep gpfs.gplbin | grep `uname -r` | xargs -I\'{}\' \
-            rpm -q \'{}\' --queryformat "%{name} %{version}-%{release}\n"', 
+    run('rpm -qa | grep gpfs.gplbin | grep `uname -r` | xargs -I\'{}\' rpm -q \'{}\' --queryformat "%{name} %{version}-%{release}\\n"', 
             stdout=f)
 
     for line in f.getvalue().splitlines():
