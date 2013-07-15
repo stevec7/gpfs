@@ -78,7 +78,17 @@ def main(args):
                     '3.5.0-7'
                     }
         
-        execute(gpfsnode.update_gpfs_software, gpfsvers, 'False', 'True')
+        updated_state = execute(gpfsnode.update_gpfs_software, gpfsvers, 'False', 'True')
+
+        # since this is being run in parallel, the state dict isnt being updated
+        #   specifying a return value returns a dict in the following format:
+        #   {'nodename': whatever_returned_from_method}. In this case, the
+        #   method returns a dictionary, for EACH node, a la: 
+        #   {'nodename': dict, 'nodename2': dict, etc...}
+        #
+        #   so, update the global state dictionary...
+        for k, v in updated_state.iteritems():
+            state['nodes'][k] = v
 
     # dump this json for now to look at results...
     json.dump(state, open('/tmp/dry_update.json', 'w'))

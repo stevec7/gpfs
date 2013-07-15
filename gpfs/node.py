@@ -114,8 +114,9 @@ class Node(object):
         @param dry_run: True runs the update, False prints the actions
         @type dry_run: boolean
 
-        @return True or False
-        @rtype: boolean
+        @return updated node dictionary: this is to be used to updated a 
+            global shared dictionary if needed
+        @rtype: dict
         """
 
         nodename = env.host_string
@@ -172,12 +173,9 @@ class Node(object):
                 else:
                     # select another manager node from nodes that are queued later
                     found_new_manager = False
-                    #status = self.state['nodes'][nodename]['action_status']
-                    #roles = self.state['nodes'][
 
                     for mgr in self.state['quorum_nodes']:
                         status = self.state['nodes'][mgr]['action_status']
-                        #print "Node: {0}, Status: {1}".format(mgr, status)
 
                         if mgr != nodename and status != 'starting':
 
@@ -187,11 +185,9 @@ class Node(object):
                             
                     # couldn't find new manager, we're screwed, bail...
                     if not found_new_manager:
-                        print "Error, could not find suitable manager node."
+                        print "[GPFS Cluster] Error, could not find suitable manager node."
                         print "Exiting..."
                         new_man = 'ted'
-                        raise NodeError("[GPFS Cluster] Could not new manager for \'{0}\'".format(
-                                    resource))
                         #sys.exit(1)
 
                     if resource == 'cluster':
@@ -217,7 +213,6 @@ class Node(object):
 
         # now, do the update action if we are clear...
         self.update_node_key(nodename, 'action_status', 'running_action')
-        #print "[{0}] action_status = \'{1}\'".format(nodename, self.state['nodes'][nodename]['action_status'])
         print "[{0}] Running software update...".format(nodename)
 
         if dry_run is False:
@@ -234,6 +229,8 @@ class Node(object):
 
         for package in software_levels.items():
             if re.match('^gpfs.gplbin', package[0]):
+                # something to keep in mind here, there could be multiple
+                #   gpfs.gplbin packages installed...
                 kern = self.state['nodes'][nodename]['kernel_vers']
                 good_gplbin = "gpfs.gplbin-%s" % (kern)
 
@@ -284,24 +281,17 @@ class Node(object):
                     print "[{0}] Final GPFS state: {1}".format(nodename, new_state)
                     self.update_node_key(nodename, 'gpfs_status', new_state)
                     self.update_node_key(nodename, 'action_status', 'broken')
-                    raise NodeError('Error starting GPFS on \'{0}\'. Bailing...'.format(nodename))
                     
         # set that node's state to finished and update the gpfs_state
         self.update_node_key(nodename, 'gpfs_status', new_state)
         self.update_node_key(nodename, 'action_status', 'finished')
         self.update_node_key(nodename, 'gpfs_baserpm', software_levels['gpfs.base'])
         self.state['finished_queue'].append(nodename)
-        #print "[{0}] action_status = \'{1}\'".format(nodename, self.state['nodes'][nodename]['action_status'])
         print "[{0}] Update completed successfully!".format(nodename)
-        #print self.state['nodes'][nodename]
 
-        return self.state
-
-class NodeError(Exception):
-    def __init__(self, value):
-        self.value = value
-    def __str__(self):
-        return repr(self.value)
+        # we need to do a return here so that we can update the state database,
+        #   since it doesn't seem to happen correctly in this class
+        return self.state['nodes'][nodename]
 
 
 # objectless subroutines 
@@ -316,11 +306,11 @@ def get_kernel_and_arch(node):
     """
 
     f = StringIO.StringIO()
-    env.hide = ('running')
     env.host_string = str(node)
     env.output_prefix = ''
         
-    run('uname -a', stdout=f)
+    with hide('running'):
+        run('uname -a', stdout=f)
 
     kernel_vers = f.getvalue().split()[2]
     arch = kernel_vers.split('.')[-1]
@@ -339,12 +329,12 @@ def get_gpfs_baserpm(node):
     """
 
     f = StringIO.StringIO()
-    env.hide = ('running')
     env.host_string = str(node)
     env.output_prefix = ''
         
-    run('rpm -q gpfs.base --queryformat "%{name} %{version} %{release}\\n"'
-        , stdout=f)
+    with hide('running'):
+        run('rpm -q gpfs.base --queryformat "%{name} %{version} %{release}\\n"'
+            , stdout=f)
     
     baserpm = '-'.join(f.getvalue().split()[1:])
     return baserpm
@@ -368,13 +358,12 @@ def get_gpfs_software_levels(node):
     software_levels = {}
 
     f = StringIO.StringIO()
-    env.hide = ('all')
-    env.show = ('output')
     env.host_string = str(node)
     env.output_prefix = ''
 
     # first, get the normal packages
-    run('rpm -q gpfs.base gpfs.gpl gpfs.docs gpfs.msg.en_US --queryformat "%{name} %{version}-%{release}\\n"', stdout=f)
+    with hide('running'):
+        run('rpm -q gpfs.base gpfs.gpl gpfs.docs gpfs.msg.en_US --queryformat "%{name} %{version}-%{release}\\n"', stdout=f)
 
 
     for line in f.getvalue().splitlines():
@@ -390,7 +379,8 @@ def get_gpfs_software_levels(node):
     #   installed, so do something with that as well...
     f.truncate(0)
 
-    run('rpm -qa | grep gpfs.gplbin | grep `uname -r` | xargs -I\'{}\' rpm -q \'{}\' --queryformat "%{name} %{version}-%{release}\\n"', 
+    with hide('running'):
+        run('rpm -qa | grep gpfs.gplbin | grep `uname -r` | xargs -I\'{}\' rpm -q \'{}\' --queryformat "%{name} %{version}-%{release}\\n"', 
             stdout=f)
 
     for line in f.getvalue().splitlines():
@@ -413,11 +403,11 @@ def get_gpfs_state(node):
     """
 
     f = StringIO.StringIO()
-    env.hide = ('running')
     env.host_string = str(node)
     env.output_prefix = ''
 
-    run('mmgetstate', stdout=f)
+    with hide('running'):
+        run('mmgetstate', stdout=f)
 
     for line in f.getvalue().splitlines():
 
@@ -441,11 +431,11 @@ def get_gpfs_verstring(node):
     """
 
     f = StringIO.StringIO()
-    env.hide = ('running')
     env.host_string = str(node)
     env.output_prefix = ''
 
-    run('mmfsadm dump version | grep "Build branch"', stdout=f)
+    with hide('running'):
+        run('mmfsadm dump version | grep "Build branch"', stdout=f)
 
     gpfsverstr = f.getvalue().split()[1]
 
@@ -477,7 +467,8 @@ def start_gpfs(node):
     """
 
     env.host_string = node
-    run('mmstartup')
+    with hide('running'):
+        run('mmstartup')
     return
 
 def shutdown_gpfs(node):
@@ -489,7 +480,8 @@ def shutdown_gpfs(node):
     """
 
     env.host_string = node
-    run('mmshutdown')
+    with hide('running'):
+        run('mmshutdown')
 
     return
 
@@ -506,15 +498,20 @@ def unmount_filesystem(filesystem, node):
     """
 
     env.host_string = node
-    run("mmumount %s" % filesystem)
+    with hide('running'):
+        run("mmumount %s" % filesystem)
 
     return
 
-def update_rpms_yum(node, gpfs_version):
+def update_rpms_yum(node, rpm_list, gpfs_version):
     """Updates the gpfs rpms via yum
 
     @param node: node to update rpms on
     @type node: string
+
+    @param rpm_list: list of rpms to install, EX: ['gpfs.base', 'gpfs.gpl']
+        Note: full gpfs.gplbin name required: gpfs.gplbin-2.6.32-279.19.1.el6.x86_64-3.5.0-7.x86_64
+    @type rpm_list: list
 
     @param gpfs_version: version to update to, EX: 3.5.0-11
     @type gpfs_version: string
@@ -522,8 +519,15 @@ def update_rpms_yum(node, gpfs_version):
     @return: NOTHING
     """
 
-    env.host_string = node
+    env.host_string = str(node)
+    env.output_prefix = ''
 
+    # append the gpfs_version string to each rpm
+    rpm_list[:] = [rpm + "-{0}".format(gpfs_version) for rpm in rpm_list]     
 
+    command = "yum -y update-to " + ' '.join(rpm_list)
+
+    with hide('running'):
+        run('true')
 
     return
