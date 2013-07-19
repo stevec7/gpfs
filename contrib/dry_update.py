@@ -72,15 +72,16 @@ def main(args):
         env.parallel = True
         env.use_hostbased = True
 
-        kwargs = {'reboot_node' : False, 
-                    'dry_run': True, 
-                    'gpfs_version' : 
-                    '3.5.0-7'
-                    }
+        #kwargs = {'reboot_node' : False, 
+        #            'dry_run': True, 
+        #            'gpfs_version' : 
+        #            '3.5.0-7'
+        #            }
         
-        updated_state = execute(gpfsnode.update_gpfs_software, gpfsvers, 'False', 'True')
+        updated_state = execute(gpfsnode.update_gpfs_software, gpfsvers,
+                False, False)
 
-        # since this is being run in parallel, the state dict isnt being updated
+        # since this is being run in parallel, the state dict isnt being updated.
         #   specifying a return value returns a dict in the following format:
         #   {'nodename': whatever_returned_from_method}. In this case, the
         #   method returns a dictionary, for EACH node, a la: 
@@ -104,6 +105,7 @@ if __name__ == '__main__':
                         default=True,
                         dest='dryrun',
                         required=False,
+                        type=bool,
                         help='dryrun, just show what would\'ve been done...')
     parser.add_argument('-f', '--file',
                         dest='jsonfile', 

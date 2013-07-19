@@ -1,6 +1,7 @@
 import re
 import StringIO
 import sys
+import time
 from collections import defaultdict
 from fabric.tasks import execute
 from fabric.api import env, local, run, parallel
@@ -98,7 +99,7 @@ class Node(object):
         return 
 
     def update_gpfs_software(self, gpfs_version=None, reboot_node=False, 
-            dry_run=True):
+            dry_run=None):
         """Update the gpfs rpms, install the portability layer,
         rpm and start gpfs back up.
 
@@ -120,7 +121,9 @@ class Node(object):
         """
 
         nodename = env.host_string
-        dry_run = True
+        if dry_run is None:
+            dry_run = True
+            print "Running in dry run mode..."
 
         # is this node a cluster or filesystem manager?
         for item in self.state['managers'].items():
@@ -160,14 +163,14 @@ class Node(object):
                         print "[GPFS Cluster] Changing cluster manager to \'{0}\', via finished_queue.".format(
                                 new_man)
                         if dry_run is False:
-                            #change_cluster_manager(new_man)
+                            change_cluster_manager(new_man)
                             self.state['managers']['cluster'] = new_man
 
                     else:
                         print "[GPFS Cluster] Changing manager of \'{0}\' to \'{1}\', via finished_queue.".format(
                                 resource, new_man)
                         if dry_run is False:
-                            #change_fs_manager(new_man, resource)
+                            change_fs_manager(new_man, resource)
                             self.state['managers'][resource] = new_man    
 
                 else:
@@ -187,15 +190,14 @@ class Node(object):
                     if not found_new_manager:
                         print "[GPFS Cluster] Error, could not find suitable manager node."
                         print "Exiting..."
-                        new_man = 'ted'
-                        #sys.exit(1)
+                        sys.exit(1)
 
                     if resource == 'cluster':
                         # change the cluster manager to the new manager
                         print "[GPFS Cluster] Changing cluster manager to \'{0}\'.".format(
                                 new_man)
                         if dry_run is False:
-                            #change_cluster_manager(new_man)
+                            change_cluster_manager(new_man)
                             self.state['managers']['cluster'] = new_man    
                             pass
 
@@ -205,7 +207,7 @@ class Node(object):
                         print "[GPFS Cluster] Changing manager of \'{0}\' to \'{1}\'.".format(
                                 resource, new_man)
                         if dry_run is False:
-                            #change_fs_manager(new_man, resource)
+                            change_fs_manager(new_man, resource)
                             self.state['managers'][resource] = new_man    
                             pass
 
@@ -216,9 +218,17 @@ class Node(object):
         print "[{0}] Running software update...".format(nodename)
 
         if dry_run is False:
+
+            # build rpmlist
+            rpm_list = ['gpfs.base', 'gpfs.gpl', 'gpfs.docs', 'gpfs.msg.en_US']
+            gplbin_rpm = "{0}-{1}".format('gpfs.gplbin',
+                    self.state['nodes'][nodename]['kernel_vers'])
+
+            rpm_list.append(gplbin_rpm)
+
             print "[{0}] Shutting down GPFS...".format(nodename)
-            #shutdown_gpfs(nodename)
-            #update_rpms(nodename)
+            shutdown_gpfs(nodename)
+            update_rpms_yum(nodename, rpm_list, gpfs_version)
 
         # check the state of GPFS on the node
         print "[{0}] Checking health after software update".format(nodename)
@@ -249,15 +259,16 @@ class Node(object):
             print "[{0}] - FAILED: {1} version is: {2}".format(
                     nodename, package[0], package[1])
 
-        if reboot_node is True:
-            self.update_node_key(nodename, 'action_status', 'rebooting')
-            print "[{0}] Rebooting...".format(nodename)
-            # reboot_node(nodename)
-            print "[{0}] Starting GPFS...".format(nodename)
-            #start_gpfs(nodename)
-        else:
-            print "[{0}] Starting GPFS...".format(nodename)
-            #start_gpfs(nodename)
+        if dry_run is False:
+            if reboot_node is True:
+                self.update_node_key(nodename, 'action_status', 'rebooting')
+                print "[{0}] Rebooting...".format(nodename)
+                reboot_node(nodename)
+                print "[{0}] Starting GPFS...".format(nodename)
+                start_gpfs(nodename)
+            else:
+                print "[{0}] Starting GPFS...".format(nodename)
+                start_gpfs(nodename)
             
 
 
@@ -270,10 +281,24 @@ class Node(object):
             if new_state != 'active':
 
                 print "[{0}] Trying to starting GPFS again...".format(nodename)
-                #start_gpfs(nodename)
+                start_gpfs(nodename)
                 time.sleep(15)
 
                 new_state = get_gpfs_state(nodename)
+
+                # now check the GPFS state for 30 seconds if necessary
+                times = 0
+                while times < 4:
+                    new_state = get_state(nodename)
+
+                    if new_state == 'active':
+                        print "[{0}] GPFS state: {1}".format(nodename, new_state)
+                        break
+                    else:
+                        print "[{0}] Looping waiting for GPFS startup...".format(nodename)
+                        time.sleep(10)
+                        times += 1
+                        
 
                 # something is wrong here...
                 if new_state != 'active':
@@ -510,7 +535,9 @@ def update_rpms_yum(node, rpm_list, gpfs_version):
     @type node: string
 
     @param rpm_list: list of rpms to install, EX: ['gpfs.base', 'gpfs.gpl']
-        Note: full gpfs.gplbin name required: gpfs.gplbin-2.6.32-279.19.1.el6.x86_64-3.5.0-7.x86_64
+        Note: long gpfs.gplbin name required: gpfs.gplbin-2.6.32-279.19.1.el6.x86_64
+            the full rpm name (not required) would be: 
+            gpfs.gplbin-2.6.32-279.19.1.el6.x86_64-3.5.0-11.x86_64
     @type rpm_list: list
 
     @param gpfs_version: version to update to, EX: 3.5.0-11
@@ -528,6 +555,6 @@ def update_rpms_yum(node, rpm_list, gpfs_version):
     command = "yum -y update-to " + ' '.join(rpm_list)
 
     with hide('running'):
-        run('true')
+        run(command)
 
     return

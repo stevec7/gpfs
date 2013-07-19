@@ -261,7 +261,7 @@ class GPFSCluster(object):
         return
 
 # objectless cluster commands
-def change_cluster_manager(self, node):
+def change_cluster_manager(node):
     """
     Change cluster manager.
 
@@ -269,12 +269,12 @@ def change_cluster_manager(self, node):
     @type node: string
     """
 
-    #env.host_string = node
+    env.host_string = node
     run("mmchmgr -c %s" % (node))
 
     return
 
-def change_fs_manager(self, node, filesystem):
+def change_fs_manager(node, filesystem):
     """
     Change the filesystem manager. 
 
@@ -287,12 +287,12 @@ def change_fs_manager(self, node, filesystem):
     @return True/False
     """
 
-    #env.host_string = node
+    env.host_string = node
     run("mmchmgr %s %s" % (filesystem, node))
 
     return
 
-def shutdown_all_gpfs(self):
+def shutdown_all_gpfs():
     """Shuts down GPFS on ALL nodes
 
     !!!Extremely dangerous!!!
@@ -311,7 +311,7 @@ def shutdown_all_gpfs(self):
 
     return
 
-def startup_all_gpfs(self):
+def startup_all_gpfs():
     """Starts up GPFS on ALL nodes
 
     !!!Extremely dangerous!!!
