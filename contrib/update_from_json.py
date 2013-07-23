@@ -16,9 +16,12 @@ def main(args):
 
 
     _NUM_GROUPS=args.numgroups
+    _MAX_FAILURES = args.maxfails
     dryrun = args.dryrun
-    state = json.load(open(args.jsonfile))
     gpfsvers = args.gpfsvers
+    rebootnodes = args.rebootnodes
+    state = json.load(open(args.jsonfile))
+    total_failures = 0
 
     # check gpfs version arg
     if not re.match('^\d+\.\d+\.\d+\-\d+', gpfsvers):
@@ -72,14 +75,11 @@ def main(args):
         env.parallel = True
         env.use_hostbased = True
 
-        #kwargs = {'reboot_node' : False, 
-        #            'dry_run': True, 
-        #            'gpfs_version' : 
-        #            '3.5.0-7'
-        #            }
+        # for now, don't reboot nodes, so explicitly set this...
+        rebootnodes = False
         
         updated_state = execute(gpfsnode.update_gpfs_software, gpfsvers,
-                False, False)
+                rebootnodes, dryrun )
 
         # since this is being run in parallel, the state dict isnt being updated.
         #   specifying a return value returns a dict in the following format:
@@ -89,7 +89,16 @@ def main(args):
         #
         #   so, update the global state dictionary...
         for k, v in updated_state.iteritems():
-            state['nodes'][k] = v
+            if k == 'failed' and v == 1:
+                total_failures += total_failures
+            else:
+                state['nodes'][k] = v
+
+        if total_failures > _MAX_FAILURES:
+            print "ERROR: Node failures ({0}) > ({1})".format(total_failures,
+                    _MAX_FAILURES)
+            print "Exiting..."
+            sys.exit(1)
 
     # dump this json for now to look at results...
     json.dump(state, open('/tmp/dry_update.json', 'w'))
@@ -102,10 +111,9 @@ if __name__ == '__main__':
                                     highest score nodes (quorum-manager, \
                                     quorum, manager, client) on top first')
     parser.add_argument('-d', '--dryrun',
-                        default=True,
+                        action='store_true',
                         dest='dryrun',
                         required=False,
-                        type=bool,
                         help='dryrun, just show what would\'ve been done...')
     parser.add_argument('-f', '--file',
                         dest='jsonfile', 
@@ -119,7 +127,19 @@ if __name__ == '__main__':
                         dest='numgroups', 
                         required=True, 
                         type=int,
-                        help='number of groups for the nodes.')
+                        help='number of update groups for the nodes.')
+    parser.add_argument('-r', '--reboot_nodes', 
+                        action='store_true',
+                        default=False,
+                        dest='rebootnodes', 
+                        required=False,
+                        help='reboot node after software update')
+    parser.add_argument('--maxfailures',
+                        default=2,
+                        dest='maxfails',
+                        required=False,
+                        type=int,
+                        help='max number of update failures to tolerate.')
     args = parser.parse_args()
 
     main(args)

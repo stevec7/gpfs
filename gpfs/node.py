@@ -123,7 +123,10 @@ class Node(object):
         nodename = env.host_string
         if dry_run is None:
             dry_run = True
-            print "Running in dry run mode..."
+
+        # check the GPFS version for format errors. Should be: X.Y.Z-A
+        if not re.match('^\d+\.\d+\.\d+\-\d+', gpfs_version):
+            raise SystemError('gpfs_version arg must be in format: X.Y.Z-V')
 
         # is this node a cluster or filesystem manager?
         for item in self.state['managers'].items():
@@ -201,8 +204,6 @@ class Node(object):
                             self.state['managers']['cluster'] = new_man    
                             pass
 
-                        
-
                     else:
                         print "[GPFS Cluster] Changing manager of \'{0}\' to \'{1}\'.".format(
                                 resource, new_man)
@@ -210,8 +211,6 @@ class Node(object):
                             change_fs_manager(new_man, resource)
                             self.state['managers'][resource] = new_man    
                             pass
-
-                        
 
         # now, do the update action if we are clear...
         self.update_node_key(nodename, 'action_status', 'running_action')
@@ -249,15 +248,27 @@ class Node(object):
                 else:
                     pass
 
-
+            # wrong gpfs package versions
+            #   no point in even starting GPFS here. just bail
             if gpfs_version != package[1]:
                 print "[{0}] - FAILED: {1} version is: {2}".format(
                         nodename, package[0], package[1])
+                self.update_node_key(nodename, 'action_status', 
+                        'software_update_failed')
+                print "[{0}] Software Update failed!".format(nodename)
+                self.update_node_key(nodename, 'failed', 1)
+                return self.state['nodes'][nodename]
     
         # dont have a proper gplbin package...
+        #   no point in even starting GPFS here. just bail
         if not have_good_gplbin:
             print "[{0}] - FAILED: {1} version is: {2}".format(
                     nodename, package[0], package[1])
+            self.update_node_key(nodename, 'action_status', 
+                    'software_update_failed')
+            print "[{0}] Software Update failed!".format(nodename)
+            self.update_node_key(nodename, 'failed', 1)
+            return self.state['nodes'][nodename]
 
         if dry_run is False:
             if reboot_node is True:
@@ -289,14 +300,14 @@ class Node(object):
                 # now check the GPFS state for 30 seconds if necessary
                 times = 0
                 while times < 4:
-                    new_state = get_state(nodename)
+                    new_state = get_gpfs_state(nodename)
 
                     if new_state == 'active':
                         print "[{0}] GPFS state: {1}".format(nodename, new_state)
                         break
                     else:
-                        print "[{0}] Looping waiting for GPFS startup...".format(nodename)
-                        time.sleep(10)
+                        print "[{0}] Looping for GPFS state == 'active'...".format(nodename)
+                        time.sleep(20)
                         times += 1
                         
 
@@ -305,12 +316,16 @@ class Node(object):
                     print "[{0}] Problem starting GPFS!".format(nodename)
                     print "[{0}] Final GPFS state: {1}".format(nodename, new_state)
                     self.update_node_key(nodename, 'gpfs_status', new_state)
-                    self.update_node_key(nodename, 'action_status', 'broken')
+                    self.update_node_key(nodename, 'action_status', 'gpfsdown')
+                    print "[{0}] Update failed!".format(nodename)
+                    self.update_node_key(nodename, 'failed', 1)
+                    return self.state['nodes'][nodename]
                     
         # set that node's state to finished and update the gpfs_state
         self.update_node_key(nodename, 'gpfs_status', new_state)
         self.update_node_key(nodename, 'action_status', 'finished')
         self.update_node_key(nodename, 'gpfs_baserpm', software_levels['gpfs.base'])
+        self.update_node_key(nodename, 'failed', 0)
         self.state['finished_queue'].append(nodename)
         print "[{0}] Update completed successfully!".format(nodename)
 

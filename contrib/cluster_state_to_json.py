@@ -43,12 +43,11 @@ def main(args):
         else:
             pass
 
-
+    _CONFIG_SERVER_SCORE = 11
     _QUORUM_MANAGER_SCORE = 8
     _QUORUM_SCORE = 5
     _MANAGER_SCORE = 3
     _CLIENT_SCORE = 1
-    _SIMULT_QUORUM_MANAGERS = 1
 
     # now, create a 'plan' to do things:
     #
@@ -69,6 +68,16 @@ def main(args):
             state['nodes'][node]['weight'] = _MANAGER_SCORE
         else:
             state['nodes'][node]['weight'] = _CLIENT_SCORE
+
+        fullname = state['nodes'][node]['admin_node_name']
+
+        # check to see if node is primary/secondary config server
+        #   - don't want them both in the same group
+        if state['primary_server'] == fullname or \
+            state['secondary_server'] == fullname:
+                state['nodes'][node]['weight'] = _CONFIG_SERVER_SCORE
+            
+
 
     json.dump(state, open(args.jsonfile, 'w'))
 
