@@ -202,7 +202,6 @@ class Node(object):
                         if dry_run is False:
                             change_cluster_manager(new_man)
                             self.state['managers']['cluster'] = new_man    
-                            pass
 
                     else:
                         print "[GPFS Cluster] Changing manager of \'{0}\' to \'{1}\'.".format(
@@ -210,7 +209,6 @@ class Node(object):
                         if dry_run is False:
                             change_fs_manager(new_man, resource)
                             self.state['managers'][resource] = new_man    
-                            pass
 
         # now, do the update action if we are clear...
         self.update_node_key(nodename, 'action_status', 'running_action')
@@ -235,6 +233,7 @@ class Node(object):
                 nodename, gpfs_version)
         software_levels = get_gpfs_software_levels(nodename)
         have_good_gplbin = False    # makes sure the kernel + gpfs_vers line up
+        correct_software = True
 
         for package in software_levels.items():
             if re.match('^gpfs.gplbin', package[0]):
@@ -253,15 +252,11 @@ class Node(object):
             if gpfs_version != package[1]:
                 print "[{0}] - FAILED: {1} version is: {2}".format(
                         nodename, package[0], package[1])
-                self.update_node_key(nodename, 'action_status', 
-                        'software_update_failed')
-                print "[{0}] Software Update failed!".format(nodename)
-                self.update_node_key(nodename, 'failed', 1)
-                return self.state['nodes'][nodename]
+                correct_software = False
     
         # dont have a proper gplbin package...
         #   no point in even starting GPFS here. just bail
-        if not have_good_gplbin:
+        if not have_good_gplbin or not correct_software:
             print "[{0}] - FAILED: {1} version is: {2}".format(
                     nodename, package[0], package[1])
             self.update_node_key(nodename, 'action_status', 

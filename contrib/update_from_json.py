@@ -89,19 +89,29 @@ def main(args):
         #
         #   so, update the global state dictionary...
         for k, v in updated_state.iteritems():
-            if k == 'failed' and v == 1:
-                total_failures += total_failures
-            else:
-                state['nodes'][k] = v
+            state['nodes'][k] = v
+
+            if state['nodes'][k]['failed'] == 1:
+                total_failures = total_failures + 1
+
+
+        # now, check how many failures...
+        #for n, d in state['nodes'].iteritems():
+        #    for k, v in d.iteritems():
+        #        if k == 'failed':
+        #            #print "Failure on: {0}".format(n)
+        #            total_failures += total_failures
 
         if total_failures > _MAX_FAILURES:
-            print "ERROR: Node failures ({0}) > ({1})".format(total_failures,
+            print "ERROR: Node failures ({0}) > maxnodefailures ({1})".format(total_failures,
                     _MAX_FAILURES)
             print "Exiting..."
             sys.exit(1)
 
     # dump this json for now to look at results...
     json.dump(state, open('/tmp/dry_update.json', 'w'))
+
+    print "Total failures: {0}".format(total_failures)
 
 if __name__ == '__main__':
 

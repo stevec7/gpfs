@@ -292,42 +292,51 @@ def change_fs_manager(node, filesystem):
 
     return
 
-def shutdown_all_gpfs():
-    """Shuts down GPFS on ALL nodes
-
-    !!!Extremely dangerous!!!
-
-    This will fail unless you pass "couldgetfired=True" to
-    GPFSCluster(), ex: c = GPFSCluster({'couldgetfired' : True})
+def mount_fs_on_all(filesystem):
     """
-    if env.couldgetfired != True:
-        print "Are you sure you want to 'mmshutdown -a'?"
-        print "If so, pass couldgetfired=True first..."
-        print "Exiting..."
-        sys.exit(0)
+    Mount a GPFS filesystem on all nodes in the cluster
+
+    @param filesystem: filesystem to mount on all nodes
+    @type filesystem: string
+
+    @return True or False
+    """
+
+    result = run("mmmount {0} -a".format(filesystem))
+
+    if result.return_code == 0:
+        return True, "Success"
     else:
-        #run('mmshutdown -a')
-        pass
+        return False, result
+
+def umount_fs_on_all(filesystem):
+    """
+    Unmount a GPFS filesystem on all nodes in the cluster
+
+    @param filesystem: filesystem to unmount on all nodes
+    @type filesystem: string
+
+    @return True or False
+    """
+
+    env.host_string = node
+    result = run("mmumount {0} -a".format(filesystem))
+
+    if result.return_code == 0:
+        return True, "Success"
+    else:
+        return False, result
+
+def shutdown_all_gpfs():
+    """Shuts down GPFS on ALL nodes"""
+
+    #run('mmshutdown -a')
 
     return
 
 def startup_all_gpfs():
-    """Starts up GPFS on ALL nodes
+    """Starts up GPFS on ALL nodes"""
 
-    !!!Extremely dangerous!!!
-
-    This will fail unless you pass "couldgetfired=True" to
-    GPFSCluster(), ex: c = GPFSCluster({'couldgetfired' : True})
-
-    Note: not as dangerous, but let's keep this req. anyway...
-    """
-    if env.couldgetfired != True:
-        print "Are you sure you want to 'mmstartup -a'?"
-        print "If so, pass couldgetfired=True first..."
-        print "Exiting..."
-        sys.exit(0)
-    else:
-        #run('mmstartup -a')
-        pass
+    #run('mmstartup -a')
 
     return

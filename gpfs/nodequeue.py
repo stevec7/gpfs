@@ -44,7 +44,7 @@ class NodeQueue(object):
         i = 0
         for n in nodelist:
             self.nodequeue[i].append(n[2])
-            i= (i+1) % num_groups
+            i = (i+1) % num_groups
 
         return
 
