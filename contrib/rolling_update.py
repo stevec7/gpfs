@@ -5,56 +5,54 @@ import operator
 import re
 import sys
 import gpfs.node
+import gpfs.cluster
+import gpfs.nodequeue
+from collections import defaultdict
 from fabric.tasks import execute
 from fabric.api import env, local, run, parallel
 from fabric.context_managers import hide, show, settings
 
+def tree():
+    return defaultdict(tree)
 
 
 def main(args):
     """This will print out a list of nodes in groups"""
 
 
-    _NUM_GROUPS=args.numgroups
+    _NUM_GROUPS = args.numgroups
     _MAX_FAILURES = args.maxfails
     dryrun = args.dryrun
     gpfsvers = args.gpfsvers
     rebootnodes = args.rebootnodes
-    state = json.load(open(args.jsonfile))
+    host = args.host
     total_failures = 0
 
     # check gpfs version arg
     if not re.match('^\d+\.\d+\.\d+\-\d+', gpfsvers):
         raise SystemError('gpfs_version arg must be in format: X.Y.Z-V')
 
-    nodelist = []
+    # grab the GPFS cluster state
+    state = tree()
+    env.hosts = [ args.host, ]
+    env.use_hostbased = True
+    cluster = gpfs.cluster.GPFSCluster(state)
 
-    for n in state['nodes'].itervalues():
-        fg = n['fg']
-
-        # get first failure group (should be fixed later)
-        try:
-            ffg = fg[0]
-        except:
-            ffg = 0
-
-        nodelist.append((n['weight'], ffg , n)) 
-
-    # sort the nodelist based on node weights (quorum/manager/client/etc)
-    nodelist.sort(reverse=True)
-
-    # create some nested lists that are separate node groups
-    nodequeue = {}
-    for k in range(0,_NUM_GROUPS):
-        nodequeue[k] = []
+    # this builds a complete GPFS cluster state defaultdict
+    with settings(
+            hide('running'),
+            output_prefix='',
+            warn_only=True
+            ):
+                execute(cluster.build_cluster_state)
+                execute(cluster.get_managers)
+                execute(cluster.get_all_kernel_and_arch)
+                execute(cluster.get_all_gpfs_baserpm)
 
 
-    # here we take the nodelist and take an entry off the top and add it to its
-    #   own nodequeue[int] group
-    i = 0
-    for n in nodelist:
-        nodequeue[i].append(n[2])
-        i=(i+1)%_NUM_GROUPS
+    # create a nodequeue
+    nq = gpfs.nodequeue.NodeQueue(state)
+    nq.create_queue(_NUM_GROUPS)
 
     # create node object to pass state dict to
     gpfsnode = gpfs.node.Node(
@@ -62,7 +60,7 @@ def main(args):
                     {'use_hostbased' : True}
                 )
 
-    for group in nodequeue.itervalues():
+    for group in nq.nodequeue.itervalues():
         print "===== GROUP ====="
         members = [ str(member['short_name']) for member in group ]
         print "=== Members: {0}".format(members)
@@ -75,9 +73,6 @@ def main(args):
         env.parallel = True
         env.use_hostbased = True
 
-        # for now, don't reboot nodes, so explicitly set this...
-        rebootnodes = False
-        
         updated_state = execute(gpfsnode.update_gpfs_software, gpfsvers,
                 rebootnodes, dryrun )
 
@@ -104,26 +99,20 @@ def main(args):
             print "Exiting..."
             sys.exit(1)
 
-    # dump this json for now to look at results...
-    json.dump(state, open('/tmp/dry_update.json', 'w'))
-
 
 if __name__ == '__main__':
 
-    parser = argparse.ArgumentParser(description='create a node queue from a json \
-                                    file for experimenting. The -n flag will \
-                                    organize nodes into groups, putting the \
-                                    highest score nodes (quorum-manager, \
-                                    quorum, manager, client) on top first')
+    parser = argparse.ArgumentParser(description='Run a rolling update on a \
+                        a GPFS cluster.')
+    parser.add_argument('-c', '--cm',
+                        dest='host',
+                        required=True,
+                        help='the gpfs cluster manager you want to spawn this from.')
     parser.add_argument('-d', '--dryrun',
                         action='store_true',
                         dest='dryrun',
                         required=False,
                         help='dryrun, just show what would\'ve been done...')
-    parser.add_argument('-f', '--file',
-                        dest='jsonfile', 
-                        required=True,
-                        help='json file to load')
     parser.add_argument('-g', '--gpfsvers', 
                         dest='gpfsvers', 
                         required=True, 

@@ -23,7 +23,7 @@ def main(args):
     env.use_hostbased = True
     cluster = GPFSCluster(state)
 
-
+    # this builds a complete GPFS cluster state defaultdict
     with settings(
             hide('running'), 
             output_prefix='',
@@ -34,51 +34,7 @@ def main(args):
                 execute(cluster.get_all_kernel_and_arch)
                 execute(cluster.get_all_gpfs_baserpm)
 
-    # we don't want to run operations on hosts that are down, unknown, or arbitrating.
-    #   in fact, we should fix those problems before we start, :-)
-    env.hosts = []
-    for h in state['nodes'].keys():
-        if state['nodes'][h]['gpfs_state'] == 'active':
-            env.hosts.append(h)
-        else:
-            pass
-
-    _CONFIG_SERVER_SCORE = 11
-    _QUORUM_MANAGER_SCORE = 8
-    _QUORUM_SCORE = 5
-    _MANAGER_SCORE = 3
-    _CLIENT_SCORE = 1
-
-    # now, create a 'plan' to do things:
-    #
-    #   - we should organize the nodes into a queue/list to update
-    #   and then assign a weight to each node based on it's roles
-    #   to update them intelligently
-    #
-    # assign a node weight and an action status, where action_status =
-    #   'queued', 'running_action' 'rebooting', 'finished_action', ''
-    for node in state['nodes'].keys():
-        state['nodes'][node]['action_status'] = ''
-
-        if state['nodes'][node]['roles'] == 'quorum-manager':
-            state['nodes'][node]['weight'] = _QUORUM_MANAGER_SCORE
-        elif state['nodes'][node]['roles'] == 'quorum':
-            state['nodes'][node]['weight'] = _QUORUM_SCORE
-        elif state['nodes'][node]['roles'] == 'manager':
-            state['nodes'][node]['weight'] = _MANAGER_SCORE
-        else:
-            state['nodes'][node]['weight'] = _CLIENT_SCORE
-
-        fullname = state['nodes'][node]['admin_node_name']
-
-        # check to see if node is primary/secondary config server
-        #   - don't want them both in the same group
-        if state['primary_server'] == fullname or \
-            state['secondary_server'] == fullname:
-                state['nodes'][node]['weight'] = _CONFIG_SERVER_SCORE
-            
-
-
+    # write all of this to a json dump
     json.dump(state, open(args.jsonfile, 'w'))
 
 if __name__ == '__main__':

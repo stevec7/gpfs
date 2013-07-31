@@ -38,6 +38,39 @@ class GPFSCluster(object):
     def _tree(self):
         return defaultdict(self._tree)
 
+    def _assign_node_weights(self):
+        """
+        Assigns node weights based roles
+        """
+        _CONFIG_SERVER_SCORE = 11
+        _QUORUM_MANAGER_SCORE = 8
+        _QUORUM_SCORE = 5
+        _MANAGER_SCORE = 3
+        _CLIENT_SCORE = 1
+
+        for node in self.state['nodes'].keys():
+
+            fullname = self.state['nodes'][node]['admin_node_name']
+
+            if self.state['nodes'][node]['roles'] == 'quorum-manager':
+                self.state['nodes'][node]['weight'] = _QUORUM_MANAGER_SCORE
+            elif self.state['nodes'][node]['roles'] == 'quorum':
+                self.state['nodes'][node]['weight'] = _QUORUM_SCORE
+            elif self.state['nodes'][node]['roles'] == 'manager':
+                self.state['nodes'][node]['weight'] = _MANAGER_SCORE
+            else:
+                self.state['nodes'][node]['weight'] = _CLIENT_SCORE
+
+
+            # check to see if node is primary/secondary config server
+            #   - don't want them both in the same group
+            if self.state['primary_server'] == fullname or \
+                self.state['secondary_server'] == fullname:
+                    self.state['nodes'][node]['weight'] = _CONFIG_SERVER_SCORE
+        
+
+        return
+
     def build_cluster_state(self):
         """
         Builds a large dictionary containing filesystem information, node info,
@@ -76,6 +109,12 @@ class GPFSCluster(object):
                 self.state['nodes'][node_short_name]['roles'] = roles
                 self.state['nodes'][node_short_name]['fg'] = [] # empty list
                 self.state['nodes'][node_short_name]['short_name'] = node_short_name
+
+                # add a blank state for use later
+                self.state['nodes'][node_short_name]['action_status'] = ''
+
+                # assign node weights as well
+                self._assign_node_weights()
 
         # create a list of ALL nodes that are 'quorum-manager'
         for node in self.state['nodes'].itervalues():
@@ -292,6 +331,37 @@ def change_fs_manager(node, filesystem):
 
     return
 
+def get_all_gpfs_state():
+    """
+    Get the GPFS state on all nodes
+
+    @return all_state: dictionary in format: { 'node_name' : 'state' }
+    """
+
+    f = StringIO.StringIO()
+    all_state = {}
+
+    with settings(
+            hide('running'),
+            output_prefix='',
+            warn_only=True
+        ):
+        run("mmgetstate -a", stdout=f)
+
+    for line in f.getvalue().splitlines():
+
+        if any(regex.match(line) for regex in _LINE_REGEX):
+            continue
+
+        else:
+            lf = ' '.join(line.split()).split()
+            node_short_name = lf[1]
+            gpfs_state = lf[2]
+
+            all_state[node_short_name] = gpfs_state
+
+    return all_state
+
 def mount_fs_on_all(filesystem):
     """
     Mount a GPFS filesystem on all nodes in the cluster
@@ -308,6 +378,34 @@ def mount_fs_on_all(filesystem):
         return True, "Success"
     else:
         return False, result
+
+def mount_fs_on_all_active(filesystem, node_states):
+    """
+    Mount a GPFS filesystem on all active nodes
+
+    @param node_states: dict of nodes with 'active' gpfs state
+    @type node_states: dict
+
+    @return NOTHING
+    """
+
+    active_nodes = []
+
+    # add all active nodes to a list
+    for k,v in node_states.iteritems():
+        if v == 'active':
+            active_nodes.append(k)
+        else:
+            pass
+
+    # create a comma separated list of nodes in active state
+    active_nodes_string = ','.join(active_nodes)
+
+    # run the command
+    with hide('everything'):
+        run("mmmount {0} -N {1}".format(filesystem, active_nodes_string))
+
+    return
 
 def umount_fs_on_all(filesystem):
     """
