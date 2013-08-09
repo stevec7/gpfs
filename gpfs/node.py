@@ -489,7 +489,9 @@ def mount_filesystem(filesystem, node):
     """
 
     env.host_string = node
-    run("mmmount %s" % filesystem)
+
+    with hide('everything'):
+        run("mmmount %s" % filesystem)
     
     return
 
@@ -533,7 +535,7 @@ def unmount_filesystem(filesystem, node):
     """
 
     env.host_string = node
-    with hide('running'):
+    with hide('everything'):
         run("mmumount %s" % filesystem)
 
     return
