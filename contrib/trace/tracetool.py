@@ -8,7 +8,7 @@ import json
 import sys
 import zlib
 from collections import defaultdict
-from gpfstrace.analyze import TraceParser
+from gpfs.analyze import TraceParser
 from IPython import embed
 
 def tree():
@@ -20,11 +20,12 @@ def main(args):
 
     if args.traceinput:     # this currently crashes on my vm...
         j = gzip.open(args.traceinput, 'r')
-        tracelog = json.load(j, args.verbose)
-        parser = TraceParser(tracelog)
+        tracelog = json.load(j)
+        parser = TraceParser(tracelog, args.verbose)
     else:
-        tracelog = lambda: defaultdict(tracelog)   # look how cool I am
-        parser = TraceParser(tracelog(), args.verbose)
+        #tracelog = lambda: defaultdict(tracelog)   # look how cool I am
+        tracelog = tree()
+        parser = TraceParser(tracelog, args.verbose)
         parser.parse_trace(args.filename, filters)
 
     # write the io dictionary to a compressed file in json format
