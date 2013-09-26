@@ -350,6 +350,15 @@ class TraceParser(object):
         
         return
 
+    def _populate_buckets(self, bucket_list, value):
+        """
+        Takes a list of buckets (ints), and a value, and returns a key for
+        which bucket the value resides in...
+        """
+        from bisect import bisect
+        i = bisect(bucket_list, value)
+        return i
+
     # Public methods
     #
     #
@@ -441,6 +450,13 @@ class TraceParser(object):
         trace_elapsed_secs = self.tracelog['stop_epoch'] -\
              self.tracelog['start_epoch']
 
+        # disk io size buckets
+        d_buckets_k = [i for i in range(0,9437184,1048576)]
+        m_buckets_k = [i for i in range(0,1048576,131072)]
+        d_buckets = dict((k, int(0)) for k in d_buckets_k)
+        m_buckets = dict((k, int(0)) for k in m_buckets_k)
+                                                            
+
         # summarize some disk stats
         if self.verbose:
             print "Disk Summary:"
@@ -457,6 +473,27 @@ class TraceParser(object):
                     v['stats']['longest_io'],
                     v['stats']['total_bytes_io'],
                     v['stats']['total_time_io'])
+                   
+                    if v['stats']['avg_io_sz'] < 1048576:
+                        bucket = m_buckets
+                        bucket_k = m_buckets_k
+                    else:
+                        bucket = d_buckets
+                        bucket_k = d_buckets_k
+
+                    # populate the iosize buckets
+                    #from IPython import embed; embed()
+                    for io in v['iosizes'][k]:
+                        b_index = self._populate_buckets(bucket_k, io)
+                        b_key = bucket_k[b_index - 1]
+                        bucket[b_key] += 1
+
+                    # print the buckets
+                    print "\tIO Size buckets: " + ', '.join(["{0}: {1}".format(k, v) for k, v in sorted(bucket.iteritems())])
+
+                    # clear the buckets for the next disk
+                    for k in bucket:
+                        bucket[k] = 0
 
                 except ValueError as ve:
                     continue
@@ -471,9 +508,7 @@ class TraceParser(object):
         print "Deviation Variance: ( data: {0:.2f}, metadata: {1:.2f})".format(
                 max_zscore * (self.tracelog['trace_io']['stats']['stddev_io_data_var']),
                 max_zscore * (self.tracelog['trace_io']['stats']['stddev_io_meta_var']) )
-        #print "Variance: ( data: {0:.4f}, metadata: {1:.4f} )".format(
-        #        data_var, meta_var)
-                                                            
+
         print "*" * 80
 
         for k, v in sorted(self.tracelog['trace_io']['disks'].iteritems()):
@@ -497,6 +532,11 @@ class TraceParser(object):
                     zs = zscore(d_io_tm, mean, stddev)
                     if zs > max_zscore:
                         print strfrmt.format(k, d_io_tm, zs)
+
+                    # populate the iosize buckets
+                    #for io in v['iosizes']:
+                    #    p = _populate_buckets(m_bucket_k, io)
+                    #    m_buckets[p] += 1
 
             except TypeError as te:
                 print "TypeError: {0}".format(te)

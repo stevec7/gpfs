@@ -35,7 +35,8 @@ def main(args):
         gzipout.close()
 
     if args.printsum:
-        pass
+        parser.print_disk_summary()
+        parser.print_network_summary()
 
     if args.interactive:
         embed()
@@ -66,7 +67,7 @@ if __name__ == '__main__':
     parser.add_argument('--print',
                         dest='printsum',
                         required=False,
-                        help='Print summaries. Valid values: ' + \
+                        help='Print summaries in a comma separated list. Valid values: ' + \
                             'io,ts,rdma,brl')
     parser.add_argument('--tojson',
                         dest='tojson',
