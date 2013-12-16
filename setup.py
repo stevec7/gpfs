@@ -8,7 +8,7 @@ except:
 setup(
     name = 'gpfs',
     version = '0.0.1',
-    description = 'libraries for GPFS',
+    description = 'libraries and tools for GPFS',
     author = 'stevec7',
     author_email = 'none',
     packages = ['gpfs']
